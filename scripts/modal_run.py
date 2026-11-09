@@ -34,17 +34,18 @@ GPU = os.environ.get("GPU", "L4")
 TIMEOUT_MIN = int(os.environ.get("TIMEOUT_MIN", "20"))
 
 image = (
-    modal.Image.debian_slim(python_version="3.11")
+    # A CUDA devel base is required when the prebuilt FlashAttention wheel is
+    # unavailable: its source build needs nvcc and CUDA_HOME.
+    modal.Image.from_registry("nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04", add_python="3.11")
     .apt_install("build-essential", "wget")  # triton compiles its launcher with gcc
-    .run_commands(  # Nsight Systems CLI from NVIDIA's CUDA repo, for kernel-level timelines
-        "wget -qO /tmp/cuda-keyring.deb https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb",
-        "dpkg -i /tmp/cuda-keyring.deb && apt-get update && apt-get install -y --no-install-recommends nsight-systems-2026.3.2",
-        "ln -sf $(ls -d /opt/nvidia/nsight-systems/*/bin/nsys | head -1) /usr/local/bin/nsys",
-    )
-    .pip_install("torch==2.6.0", "transformers>=4.51,<5", "xxhash", "huggingface_hub", "pytest")
     .pip_install(
-        "https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/"
-        "flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp311-cp311-linux_x86_64.whl"
+        "torch==2.6.0", "transformers>=4.51,<5", "xxhash", "huggingface_hub", "pytest",
+        "ninja", "packaging", "psutil",
+    )
+    # The matching GitHub wheel is intermittently unavailable from Modal's
+    # builder. Build from the pinned sdist after torch is installed instead.
+    .run_commands(
+        "MAX_JOBS=4 python -m pip install --no-build-isolation flash-attn==2.7.4.post1",
     )
     .add_local_dir(".", REPO, ignore=["reference", ".git", "**/__pycache__", "out", ".venv"])
 )
